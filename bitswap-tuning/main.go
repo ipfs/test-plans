@@ -9,7 +9,5 @@ func main() {
 	run.InvokeMap(map[string]interface{}{
 		"transfer": test.Transfer,
 		"fuzz":     test.Fuzz,
-		// TODO: Additional testcases to be added
-		// "baseline": test.Baseline,
 	})
 }
