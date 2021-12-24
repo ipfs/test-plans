@@ -1,0 +1,20 @@
+[metadata]
+  name = "tcp"
+  author = "Adin Schmahmann"
+
+[global]
+  plan = "data-transfer"
+  case = "tcp"
+  total_instances = 2
+  builder = "docker:go"
+  runner = "local:docker"
+  disable_metrics = false
+
+[[groups]]
+  id = "group1"
+  [groups.instances]
+    count = 2
+  [groups.run]
+    [groups.run.test_params]
+      latency = "10ms"
+      bandwidth = "1GiB"

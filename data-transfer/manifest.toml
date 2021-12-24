@@ -1,0 +1,54 @@
+name = "data-transfer"
+[defaults]
+builder = "exec:go"
+runner = "local:exec"
+
+[builders."docker:go"]
+enabled = true
+go_version = "1.17"
+module_path = "github.com/ipfs/test-plans/data-transfer"
+exec_pkg = "."
+
+[runners."local:docker"]
+enabled = true
+
+
+[runners."cluster:k8s"]
+enabled = true
+
+[[testcases]]
+name = "tcp"
+instances = { min = 2, max = 2, default = 2 }
+
+   [testcases.params]
+   latency = { type = "string", desc = "latency", unit = "time", default = "100ms" }
+   bandwidth = { type = "string", desc = "egress bandwidth per second", unit = "bytes", default = "1GiB" }
+
+[[testcases]]
+name = "libp2p"
+instances = { min = 2, max = 2, default = 2 }
+
+   [testcases.params]
+   latency = { type = "string", desc = "latency", unit = "time", default = "100ms" }
+   bandwidth = { type = "string", desc = "egress bandwidth per second", unit = "bytes", default = "1GiB" }
+   transports = { type = "string", desc = "supported transports", default = "tcp,quic,ws" }
+   muxers = { type = "string", desc = "supported muxers", default = "mplex,yamux" }
+   security = { type = "string", desc = "supported security transports", default = "noise,tls" }
+
+[[testcases]]
+name = "bitswap"
+instances = { min = 2, max = 2, default = 2 }
+
+   [testcases.params]
+   latency = { type = "string", desc = "latency", unit = "time", default = "100ms" }
+   bandwidth = { type = "string", desc = "egress bandwidth per second", unit = "bytes", default = "1GiB" }
+   transports = { type = "string", desc = "supported transports", default = "tcp,quic,ws" }
+   muxers = { type = "string", desc = "supported muxers", default = "mplex,yamux" }
+   security = { type = "string", desc = "supported security transports", default = "noise,tls" }
+
+# Add more testcases here...
+# [[testcases]]
+# name = "another"
+# instances = { min = 1, max = 1, default = 1 }
+#   [testcase.params]
+#   param1 = { type = "int", desc = "an integer", unit = "units", default = 3 }
