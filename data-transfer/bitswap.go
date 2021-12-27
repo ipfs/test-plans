@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	gsync "sync"
 	"time"
 
 	"github.com/testground/sdk-go/run"
@@ -13,6 +14,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/ipfs/go-bitswap"
 	"github.com/ipfs/go-bitswap/network"
+	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-blockservice"
 	"github.com/ipfs/go-cid"
 	leveldb "github.com/ipfs/go-ds-leveldb"
@@ -82,6 +84,15 @@ func bitswapUnixFSFileTest(runenv *runtime.RunEnv, initCtx *run.InitContext) err
 		}
 		scancel() // cancels the Subscription.
 
+		ds, err := leveldb.NewDatastore("", nil)
+		if err != nil {
+			return err
+		}
+		bstore := &CountingBS{ Blockstore: blockstore.NewBlockstore(ds), check: make(map[cid.Cid]struct{}), re: runenv}
+		bswap := bitswap.New(ctx, network.NewFromIpfsHost(ti.h, rhelp.Null{}), bstore, bitswap.MaxOutstandingBytesPerPeer(1 << 30))
+		dserv := merkledag.NewDAGService(blockservice.New(bstore, bswap))
+		ctxDsrv := merkledag.NewReadOnlyDagService(merkledag.NewSession(ctx, dserv))
+
 		ai1 := ti.peers[1]
 		if err := ti.h.Connect(ctx, ai1); err != nil {
 			return err
@@ -101,15 +112,6 @@ func bitswapUnixFSFileTest(runenv *runtime.RunEnv, initCtx *run.InitContext) err
 		}
 		runenv.RecordMessage("Finished vole check: %v", vo)
 
-		ds, err := leveldb.NewDatastore("", nil)
-		if err != nil {
-			return err
-		}
-		bstore := blockstore.NewBlockstore(ds)
-		bswap := bitswap.New(ctx, network.NewFromIpfsHost(ti.h, rhelp.Null{}), bstore)
-		dserv := merkledag.NewDAGService(blockservice.New(bstore, bswap))
-		ctxDsrv := merkledag.NewReadOnlyDagService(merkledag.NewSession(ctx, dserv))
-
 		runenv.RecordMessage("Try single block download")
 		foundBlk, err := bswap.GetBlock(ctx, rootCid)
 		if err != nil {
@@ -121,28 +123,31 @@ func bitswapUnixFSFileTest(runenv *runtime.RunEnv, initCtx *run.InitContext) err
 		start := time.Now()
 		set := cid.NewSet()
 		pt := &merkledag.ProgressTracker{}
-		ptCtx := pt.DeriveContext(ctx)
 		go func() {
-			tc := time.NewTicker(time.Second * 10)
+			tc := time.NewTicker(time.Second * 1)
 			for  {
 				select {
 				case <- ctx.Done():
 					return
 				case <- tc.C:
-					for _, p := range ti.h.Network().Peers() {
-						protos, err := ti.h.Peerstore().GetProtocols(p)
-						if err != nil {
-							runenv.RecordMessage("peer proto err: %v", err)
-						}
-						runenv.RecordMessage("peer : %v, protos : %v", p, protos)
-					}
 					runenv.RecordMessage("progress : %d", pt.Value())
 				}
 			}
 		}()
-		if err := merkledag.Walk(ptCtx, merkledag.GetLinksDirect(ctxDsrv), rootCid, set.Visit, merkledag.Concurrency(500)); err != nil {
+
+		visitProgress := func(c cid.Cid) bool {
+			if set.Visit(c) {
+				pt.Increment()
+				return true
+			}
+			return false
+		}
+
+		if err := merkledag.Walk(ctx, merkledag.GetLinksDirect(ctxDsrv), rootCid, visitProgress, merkledag.Concurrency(500)); err != nil {
 			return err
 		}
+		runenv.RecordMessage("progress : %d", pt.Value())
+		runenv.RecordMessage("progress blocks: %d", len(bstore.check))
 		runenv.RecordMessage("Client finished: %s", time.Since(start))
 	default:
 		return fmt.Errorf("expected at most two test instances")
@@ -153,3 +158,36 @@ func bitswapUnixFSFileTest(runenv *runtime.RunEnv, initCtx *run.InitContext) err
 
 	return nil
 }
+
+type CountingBS struct {
+	blockstore.Blockstore
+	lm gsync.Mutex
+	check map[cid.Cid]struct{}
+	re *runtime.RunEnv
+}
+
+func (b *CountingBS) Put(ctx context.Context, block blocks.Block) error {
+	if err := b.Blockstore.Put(ctx, block); err != nil {
+		return err
+	}
+	b.lm.Lock()
+	defer b.lm.Unlock()
+	b.check[block.Cid()] = struct{}{}
+	b.re.RecordMessage("put single: progress blocks : %d", len(b.check))
+	return nil
+}
+
+func (b *CountingBS) PutMany(ctx context.Context, blocks []blocks.Block) error {
+	if err := b.Blockstore.PutMany(ctx, blocks); err != nil {
+		return err
+	}
+	b.lm.Lock()
+	defer b.lm.Unlock()
+	for _, block := range blocks {
+		b.check[block.Cid()] = struct{}{}
+	}
+	b.re.RecordMessage("put many %d: progress blocks : %d", len(blocks), len(b.check))
+	return nil
+}
+
+var _ blockstore.Blockstore = (*CountingBS)(nil)
