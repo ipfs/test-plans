@@ -5,15 +5,21 @@ go 1.16
 require (
 	github.com/aschmahmann/vole v0.0.0-20211216154322-ab04fc79bcdb
 	github.com/dustin/go-humanize v1.0.0
+	github.com/google/uuid v1.3.0
 	github.com/ipfs/go-bitswap v0.5.1
 	github.com/ipfs/go-block-format v0.0.3
 	github.com/ipfs/go-blockservice v0.2.1
 	github.com/ipfs/go-cid v0.1.0
 	github.com/ipfs/go-ds-leveldb v0.5.0
 	github.com/ipfs/go-ipfs-blockstore v1.1.2
+	github.com/ipfs/go-ipfs-exchange-interface v0.1.0
 	github.com/ipfs/go-ipfs-routing v0.2.1
+	github.com/ipfs/go-ipld-format v0.2.0
+	github.com/ipfs/go-ipld-legacy v0.1.0
+	github.com/ipfs/go-log/v2 v2.3.0
 	github.com/ipfs/go-merkledag v0.5.1
 	github.com/ipfs/go-unixfsnode v1.1.4-0.20211221201818-b2ae22e83798
+	github.com/ipfs/go-verifcid v0.0.1
 	github.com/ipld/go-car/v2 v2.1.1
 	github.com/ipld/go-codec-dagpb v1.3.0
 	github.com/ipld/go-ipld-prime v0.14.3
@@ -26,6 +32,7 @@ require (
 	github.com/libp2p/go-libp2p-routing-helpers v0.2.3
 	github.com/libp2p/go-libp2p-tls v0.3.1
 	github.com/libp2p/go-libp2p-yamux v0.6.0
+	github.com/libp2p/go-msgio v0.1.0
 	github.com/libp2p/go-tcp-transport v0.4.0
 	github.com/libp2p/go-ws-transport v0.5.0
 	github.com/multiformats/go-multiaddr v0.4.1

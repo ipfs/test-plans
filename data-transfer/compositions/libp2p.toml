@@ -16,7 +16,7 @@
     count = 2
   [groups.run]
     [groups.run.test_params]
-      latency = "10ms"
+      latency = "500ms"
       bandwidth = "1GiB"
       transports = "tcp,quic,ws"
       muxers = "mplex,yamux"
