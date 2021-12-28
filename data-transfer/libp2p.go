@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/libp2p/go-libp2p-core/host"
-	"math/rand"
 	"strings"
 	"time"
 
@@ -49,16 +48,11 @@ func libp2pTest(runenv *runtime.RunEnv, initCtx *run.InitContext) error {
 		return err
 	}
 
-	fileSize, err := humanize.ParseBytes("10 MB")
-	if err != nil {
-		return err
-	}
-
 	proto := protocol.ID("/test-tcp-transfer/0.0.1")
 
 	switch ti.seq {
 	case 1:
-		file, err := GenerateUnixFSCarFile(ctx, rand.New(rand.NewSource(0)), fileSize)
+		file, err := GetCARFileFromConfig(ctx, runenv)
 		if err != nil {
 			return err
 		}

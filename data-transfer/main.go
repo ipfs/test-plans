@@ -11,7 +11,7 @@ import (
 var testcases = map[string]interface{}{
 	"tcp":    run.InitializedTestCaseFn(tcptest),
 	"libp2p": run.InitializedTestCaseFn(libp2pTest),
-	"bitswap" : run.InitializedTestCaseFn(bitswapUnixFSFileTest),
+	"bitswap" : run.InitializedTestCaseFn(bitswap1to1),
 }
 
 func main() {

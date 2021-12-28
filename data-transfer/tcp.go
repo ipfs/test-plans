@@ -11,7 +11,6 @@ import (
 	"github.com/testground/sdk-go/runtime"
 	"github.com/testground/sdk-go/sync"
 	"io"
-	"math/rand"
 	"net"
 	"os"
 	"time"
@@ -86,11 +85,6 @@ func tcptest(runenv *runtime.RunEnv, initCtx *run.InitContext) error {
 		conn     *net.TCPConn
 	)
 
-	fileSize, err := humanize.ParseBytes("10 MB")
-	if err != nil {
-		return err
-	}
-
 	if seq == 1 {
 		listener, err = net.ListenTCP("tcp4", &net.TCPAddr{Port: 1234})
 		if err != nil {
@@ -127,7 +121,7 @@ func tcptest(runenv *runtime.RunEnv, initCtx *run.InitContext) error {
 
 	switch seq {
 	case 1:
-		file, err := GenerateUnixFSCarFile(ctx, rand.New(rand.NewSource(0)), fileSize)
+		file, err := GetCARFileFromConfig(ctx, runenv)
 		if err != nil {
 			return err
 		}

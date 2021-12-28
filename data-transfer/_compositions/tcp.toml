@@ -1,10 +1,10 @@
 [metadata]
-  name = "libp2p"
+  name = "tcp"
   author = "Adin Schmahmann"
 
 [global]
   plan = "data-transfer"
-  case = "libp2p"
+  case = "tcp"
   total_instances = 2
   builder = "docker:go"
   runner = "local:docker"
@@ -18,6 +18,5 @@
     [groups.run.test_params]
       latency = "500ms"
       bandwidth = "1GiB"
-      transports = "tcp,quic,ws"
-      muxers = "mplex,yamux"
-      security = "noise,tls"
+      dagtype="deep-ipld"
+      dagparams="10"
