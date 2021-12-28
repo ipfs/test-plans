@@ -23,4 +23,4 @@
       security = "tls"
       servertype = "simplified"
       dagtype="deep-ipld"
-      dagparams="{\"Padding\" : \"128 KiB\", \"Depth\" : 10}"
+      dagparams="{\"Padding\" : \"128 KiB\", \"Depth\" : 100}"
