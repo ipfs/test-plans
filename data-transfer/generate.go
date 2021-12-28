@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	blocks "github.com/ipfs/go-block-format"
+	delay "github.com/ipfs/go-ipfs-delay"
 	"io"
 	"math/rand"
 	"os"
+	"time"
 
 	_ "github.com/ipld/go-ipld-prime/codec/dagcbor"
 
@@ -164,6 +167,12 @@ func GetBlockstoreFromConfig(ctx context.Context, runenv *runtime.RunEnv) (block
 		return nil, cid.Undef, err
 	}
 
+	bslatency := runenv.StringParam("bslatency")
+	dur, err := time.ParseDuration(bslatency)
+	if err != nil {
+		return nil, cid.Cid{}, err
+	}
+
 	dataBS, err := LoadCARBlockstore(f)
 	if err != nil {
 		return nil, cid.Undef, err
@@ -178,7 +187,12 @@ func GetBlockstoreFromConfig(ctx context.Context, runenv *runtime.RunEnv) (block
 	}
 	rootCid := roots[0]
 
-	return dataBS, rootCid, nil
+	delayedBS := &DelayedBlockstore{
+		Blockstore: dataBS,
+		delay:      delay.Fixed(dur),
+	}
+
+	return delayedBS, rootCid, nil
 }
 
 func GetCARFileFromConfig(ctx context.Context, runenv *runtime.RunEnv) (*os.File, error) {
@@ -226,3 +240,43 @@ func GetCARFileFromConfig(ctx context.Context, runenv *runtime.RunEnv) (*os.File
 		panic(fmt.Sprintf("unsupported dagtype %s", dagtype))
 	}
 }
+
+type DelayedBlockstore struct {
+	blockstore.Blockstore
+	delay delay.D
+}
+
+func (d *DelayedBlockstore) DeleteBlock(ctx context.Context, c cid.Cid) error {
+	panic("implement me")
+}
+
+func (d *DelayedBlockstore) Has(ctx context.Context, c cid.Cid) (bool, error) {
+	panic("implement me")
+}
+
+func (d *DelayedBlockstore) Get(ctx context.Context, c cid.Cid) (blocks.Block, error) {
+	d.delay.Wait()
+	return d.Blockstore.Get(ctx, c)
+}
+
+func (d *DelayedBlockstore) GetSize(ctx context.Context, c cid.Cid) (int, error) {
+	panic("implement me")
+}
+
+func (d *DelayedBlockstore) Put(ctx context.Context, block blocks.Block) error {
+	panic("implement me")
+}
+
+func (d *DelayedBlockstore) PutMany(ctx context.Context, blocks []blocks.Block) error {
+	panic("implement me")
+}
+
+func (d *DelayedBlockstore) AllKeysChan(ctx context.Context) (<-chan cid.Cid, error) {
+	panic("implement me")
+}
+
+func (d *DelayedBlockstore) HashOnRead(enabled bool) {
+	panic("implement me")
+}
+
+var _ blockstore.Blockstore = (*DelayedBlockstore)(nil)

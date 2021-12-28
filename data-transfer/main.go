@@ -12,6 +12,7 @@ var testcases = map[string]interface{}{
 	"tcp":    run.InitializedTestCaseFn(tcptest),
 	"libp2p": run.InitializedTestCaseFn(libp2pTest),
 	"bitswap" : run.InitializedTestCaseFn(bitswap1to1),
+	"graphsync" : run.InitializedTestCaseFn(graphsync1to1),
 }
 
 func main() {

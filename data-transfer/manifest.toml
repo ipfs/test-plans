@@ -54,8 +54,24 @@ instances = { min = 2, max = 2, default = 2 }
 
    dagtype = { type = "string", desc = "dag type to transfer", default = "unixfs-file" }
    dagparams = { type = "string", desc = "paramaters for the dag being transferred", default = "10 MB" }
+   bslatency = { type = "string", desc = "latency", unit = "time", default = "0ms" }
    servertype = { type = "string", desc = "bitswap implementation type", default = "standard" }
    serverparams = { type = "string", desc = "paramaters for the bitswap implementation", default = "" }
+
+[[testcases]]
+name = "graphsync"
+instances = { min = 2, max = 2, default = 2 }
+
+  [testcases.params]
+  latency = { type = "string", desc = "latency", unit = "time", default = "100ms" }
+  bandwidth = { type = "string", desc = "egress bandwidth per second", unit = "bytes", default = "1GiB" }
+  transports = { type = "string", desc = "supported transports", default = "tcp,quic,ws" }
+  muxers = { type = "string", desc = "supported muxers", default = "mplex,yamux" }
+  security = { type = "string", desc = "supported security transports", default = "noise,tls" }
+
+  dagtype = { type = "string", desc = "dag type to transfer", default = "unixfs-file" }
+  dagparams = { type = "string", desc = "paramaters for the dag being transferred", default = "10 MB" }
+  bslatency = { type = "string", desc = "latency", unit = "time", default = "0ms" }
 
 # Add more testcases here...
 # [[testcases]]

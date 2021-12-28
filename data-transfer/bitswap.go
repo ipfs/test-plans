@@ -180,7 +180,11 @@ func (b *CountingBS) Put(ctx context.Context, block blocks.Block) error {
 	b.lm.Lock()
 	defer b.lm.Unlock()
 	b.check[block.Cid()] = struct{}{}
-	b.re.RecordMessage("put single: progress blocks : %d", len(b.check))
+	if b.re != nil {
+		b.re.RecordMessage("put single: progress blocks : %d", len(b.check))
+	} else {
+		fmt.Printf("put single: progress blocks : %d\n", len(b.check))
+	}
 	return nil
 }
 
@@ -193,7 +197,11 @@ func (b *CountingBS) PutMany(ctx context.Context, blocks []blocks.Block) error {
 	for _, block := range blocks {
 		b.check[block.Cid()] = struct{}{}
 	}
-	b.re.RecordMessage("put many %d: progress blocks : %d", len(blocks), len(b.check))
+	if b.re != nil {
+		b.re.RecordMessage("put many %d: progress blocks : %d", len(blocks), len(b.check))
+	}else {
+		fmt.Printf("put many %d: progress blocks : %d\n", len(blocks), len(b.check))
+	}
 	return nil
 }
 
