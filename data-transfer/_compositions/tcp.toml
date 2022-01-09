@@ -16,7 +16,7 @@
     count = 2
   [groups.run]
     [groups.run.test_params]
-      latency = "500ms"
+      latency = "10ms"
       bandwidth = "1GiB"
-      dagtype="deep-ipld"
-      dagparams="10"
+      #dagtype="deep-ipld"
+      #dagparams="10"

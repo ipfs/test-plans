@@ -50,6 +50,7 @@ func libp2pTest(runenv *runtime.RunEnv, initCtx *run.InitContext) error {
 
 	proto := protocol.ID("/test-tcp-transfer/0.0.1")
 
+	protocolRegistered := sync.State("protocol-registered")
 	switch ti.seq {
 	case 1:
 		file, err := GetCARFileFromConfig(ctx, runenv)
@@ -65,12 +66,19 @@ func libp2pTest(runenv *runtime.RunEnv, initCtx *run.InitContext) error {
 			}
 			runenv.RecordMessage("Server finished: %s", dur)
 		})
+
+		initCtx.SyncClient.MustSignalAndWait(ctx, protocolRegistered, runenv.TestInstanceCount)
 	case 2:
+		initCtx.SyncClient.MustSignalAndWait(ctx, protocolRegistered, runenv.TestInstanceCount)
+
 		ai1 := ti.peers[1]
 		if err := ti.h.Connect(ctx, ai1); err != nil {
 			return err
 		}
 		stream, err := ti.h.NewStream(ctx, ai1.ID, proto)
+		if err != nil {
+			return err
+		}
 		dur, err := clientProtocol(runenv, stream)
 		if err != nil {
 			return err

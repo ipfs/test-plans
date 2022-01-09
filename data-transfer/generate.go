@@ -30,6 +30,7 @@ import (
 	"github.com/testground/sdk-go/runtime"
 )
 
+// GenerateUnixFSCarFile generates a CARv2 file from
 func GenerateUnixFSCarFile(ctx context.Context, rng *rand.Rand, size uint64) (*os.File, error) {
 	file, err := os.CreateTemp("", "unixfs-file")
 

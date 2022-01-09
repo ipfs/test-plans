@@ -16,7 +16,7 @@
     count = 2
   [groups.run]
     [groups.run.test_params]
-      latency = "500ms"
+      latency = "50ms"
       bandwidth = "1GiB"
       transports = "tcp"
       muxers = "yamux"
@@ -24,4 +24,4 @@
       servertype = "simplified"
       #dagtype="deep-ipld"
       #dagparams="{\"Padding\" : \"128 KiB\", \"Depth\" : 10}"
-      bslatency = "500ms"
+      bslatency = "50ms"

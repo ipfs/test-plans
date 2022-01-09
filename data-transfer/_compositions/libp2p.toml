@@ -16,10 +16,12 @@
     count = 2
   [groups.run]
     [groups.run.test_params]
-      latency = "500ms"
-      bandwidth = "1GiB"
+      latency = "10ms"
+      bandwidth = "100GiB"
       transports = "tcp"
       muxers = "yamux"
       security = "tls"
-      dagtype="deep-ipld"
-      dagparams="{\"Padding\" : \"128 KiB\", \"Depth\" : 10}"
+      dagtype="unixfs-file"
+      dagparams="1 GB"
+      #dagtype="deep-ipld"
+      #dagparams="{\"Padding\" : \"128 KiB\", \"Depth\" : 10}"
