@@ -17,6 +17,8 @@
   [groups.run]
     [groups.run.test_params]
       latency = "10ms"
-      bandwidth = "1GiB"
+      bandwidth = "100GiB"
+      dagtype="unixfs-file"
+      dagparams="1 GB"
       #dagtype="deep-ipld"
       #dagparams="10"
