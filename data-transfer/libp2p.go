@@ -40,7 +40,7 @@ type Libp2pTestInfo struct {
 }
 
 func libp2pTest(runenv *runtime.RunEnv, initCtx *run.InitContext) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 
 	ti, err := setupBaseLibp2pTest(ctx, runenv, initCtx)
