@@ -52,7 +52,7 @@ func tcptest(runenv *runtime.RunEnv, initCtx *run.InitContext) error {
 		Enable: true,
 		Default: network.LinkShape{
 			Latency:   latency,
-			Bandwidth: bandwidth,
+			Bandwidth: bandwidth * 8,
 		},
 		CallbackState: "network-configured",
 		RoutingPolicy: network.DenyAll,

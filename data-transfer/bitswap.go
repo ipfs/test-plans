@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	delay "github.com/ipfs/go-ipfs-delay"
+	"github.com/ipfs/test-plans/data-transfer/tglog"
+	"github.com/libp2p/go-libp2p-core/peer"
 	"io"
 	gsync "sync"
 	"time"
@@ -32,6 +35,8 @@ var doneState = sync.State("test-done")
 func bitswap1to1(runenv *runtime.RunEnv, initCtx *run.InitContext) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+
+	logger = &tglog.RunenvLogger{Re: runenv}
 
 	for k, v := range runenv.TestInstanceParams {
 		runenv.RecordMessage("key: %s, value: %s", k, v)
@@ -73,14 +78,40 @@ func bitswapServer(ctx context.Context, runenv *runtime.RunEnv, initCtx *run.Ini
 		if err != nil {
 			return err
 		}
-		bsopts := []bitswap.Option{bitswap.MaxOutstandingBytesPerPeer( 1 << 30)}
+		bsopts := []bitswap.Option{bitswap.MaxOutstandingBytesPerPeer(1 << 30)}
 
 		bsServer = bitswap.New(ctx, network.NewFromIpfsHost(ti.h, nilRouter), bs, bsopts...)
 	case "simplified":
 		bsServer = dtbs.NewServer(ti.h, bs, runenv)
 	default:
 		panic(fmt.Sprintf("unsupported servertype %s", serverType))
+	}
 
+	manifestFetchType := runenv.StringParam("manifestfetchtype")
+	switch manifestFetchType {
+	case "none":
+	case "manifetch":
+		manifetchBlockLatency := runenv.StringParam("manifetchbslatency")
+		dur, err := time.ParseDuration(manifetchBlockLatency)
+		if err != nil {
+			return err
+		}
+
+		dbs := bs.(*DelayedBlockstore)
+		baseBS := dbs.Blockstore
+
+		delayedBS := &DelayedBlockstore{
+			Blockstore: baseBS,
+			delay:      delay.Fixed(dur),
+		}
+
+		handler, err := NewManifetchServer(delayedBS)
+		if err != nil {
+			return err
+		}
+		ti.h.SetStreamHandler(manifetchID, handler)
+	default:
+		panic(fmt.Sprintf("unsupported manifestfetchtype %s", manifestFetchType))
 	}
 
 	initCtx.SyncClient.MustPublish(ctx, rootCidTopic, rootCid)
@@ -113,14 +144,81 @@ func bitswapClient(ctx context.Context, runenv *runtime.RunEnv, initCtx *run.Ini
 
 	ai1 := ti.peers[1]
 
+	manifestFetchType := runenv.StringParam("manifestfetchtype")
+	switch manifestFetchType {
+	case "none":
+		return basicDAGWalker(ctx, runenv, initCtx, ti, ai1, rootCid)
+	case "manifetch":
+		return manifetchDAGWalker(ctx, runenv, initCtx, ti, ai1, rootCid)
+	default:
+		panic(fmt.Sprintf("unsupported manifestfetchtype %s", manifestFetchType))
+	}
+
+	return nil
+}
+
+func manifetchDAGWalker(ctx context.Context, runenv *runtime.RunEnv, initCtx *run.InitContext, ti *Libp2pTestInfo, ai1 peer.AddrInfo, rootCid cid.Cid) error {
 	ds, err := leveldb.NewDatastore("", nil)
 	if err != nil {
 		return err
 	}
-	bstore := &CountingBS{ Blockstore: blockstore.NewBlockstore(ds), check: make(map[cid.Cid]struct{}), re: runenv}
+	bstore := &CountingBS{Blockstore: blockstore.NewBlockstore(ds), check: make(map[cid.Cid]struct{}), re: runenv}
 	//bsclient := bitswap.New(ctx, network.NewFromIpfsHost(ti.h, rhelp.Null{}), bstore, bitswap.MaxOutstandingBytesPerPeer(1 << 30))
-	bsclient := dtbs.NewClient(ti.h, bstore, ai1.ID, runenv)
-	merkledag.RunEnv = runenv
+	bsclient := dtbs.NewClient(ti.h, bstore, ai1.ID, logger)
+	merkledag.Logger = logger
+
+	runenv.RecordMessage("Client connect to server")
+
+	if err := ti.h.Connect(ctx, ai1); err != nil {
+		return err
+	}
+
+	runenv.RecordMessage("Client starting download")
+	start := time.Now()
+	pt := &merkledag.ProgressTracker{}
+	go func() {
+		tc := time.NewTicker(time.Second * 1)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tc.C:
+				runenv.RecordMessage("progress : %d", pt.Value())
+			}
+		}
+	}()
+
+	manifetchStream, err := ti.h.NewStream(ctx, ai1.ID, manifetchID)
+	if err != nil {
+		return err
+	}
+	manifestCids, err := manifetchGet(manifetchStream, rootCid)
+	if err != nil {
+		return err
+	}
+
+
+	if err := merkledag.Walk2(ctx, bstore, bsclient, rootCid, manifestCids, pt, logger, merkledag.Concurrency(500)); err != nil{
+		return err
+	}
+
+	runenv.RecordMessage("progress : %d", pt.Value())
+	runenv.RecordMessage("progress blocks: %d", len(bstore.check))
+	runenv.RecordMessage("Client finished: %s", time.Since(start))
+
+	initCtx.SyncClient.MustSignalAndWait(ctx, doneState, runenv.TestInstanceCount)
+	return nil
+}
+
+func basicDAGWalker(ctx context.Context, runenv *runtime.RunEnv, initCtx *run.InitContext, ti *Libp2pTestInfo, ai1 peer.AddrInfo, rootCid cid.Cid) error {
+	ds, err := leveldb.NewDatastore("", nil)
+	if err != nil {
+		return err
+	}
+	bstore := &CountingBS{Blockstore: blockstore.NewBlockstore(ds), check: make(map[cid.Cid]struct{}), re: runenv}
+	//bsclient := bitswap.New(ctx, network.NewFromIpfsHost(ti.h, rhelp.Null{}), bstore, bitswap.MaxOutstandingBytesPerPeer(1 << 30))
+	bsclient := dtbs.NewClient(ti.h, bstore, ai1.ID, logger)
+	merkledag.Logger = logger
 	//blockservice.RunEnv = runenv
 	dserv := mdagorig.NewDAGService(blockservice.New(bstore, bsclient))
 	ctxDsrv := mdagorig.NewReadOnlyDagService(mdagorig.NewSession(ctx, dserv))
@@ -137,11 +235,11 @@ func bitswapClient(ctx context.Context, runenv *runtime.RunEnv, initCtx *run.Ini
 	pt := &merkledag.ProgressTracker{}
 	go func() {
 		tc := time.NewTicker(time.Second * 1)
-		for  {
+		for {
 			select {
-			case <- ctx.Done():
+			case <-ctx.Done():
 				return
-			case <- tc.C:
+			case <-tc.C:
 				runenv.RecordMessage("progress : %d", pt.Value())
 			}
 		}
@@ -168,9 +266,9 @@ func bitswapClient(ctx context.Context, runenv *runtime.RunEnv, initCtx *run.Ini
 
 type CountingBS struct {
 	blockstore.Blockstore
-	lm gsync.Mutex
+	lm    gsync.Mutex
 	check map[cid.Cid]struct{}
-	re *runtime.RunEnv
+	re    *runtime.RunEnv
 }
 
 func (b *CountingBS) Put(ctx context.Context, block blocks.Block) error {
@@ -199,7 +297,7 @@ func (b *CountingBS) PutMany(ctx context.Context, blocks []blocks.Block) error {
 	}
 	if b.re != nil {
 		b.re.RecordMessage("put many %d: progress blocks : %d", len(blocks), len(b.check))
-	}else {
+	} else {
 		fmt.Printf("put many %d: progress blocks : %d\n", len(blocks), len(b.check))
 	}
 	return nil

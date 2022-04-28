@@ -168,12 +168,6 @@ func GetBlockstoreFromConfig(ctx context.Context, runenv *runtime.RunEnv) (block
 		return nil, cid.Undef, err
 	}
 
-	bslatency := runenv.StringParam("bslatency")
-	dur, err := time.ParseDuration(bslatency)
-	if err != nil {
-		return nil, cid.Cid{}, err
-	}
-
 	dataBS, err := LoadCARBlockstore(f)
 	if err != nil {
 		return nil, cid.Undef, err
@@ -187,6 +181,12 @@ func GetBlockstoreFromConfig(ctx context.Context, runenv *runtime.RunEnv) (block
 		return nil, cid.Undef, fmt.Errorf("there should be exactly one root, instead there are %d", len(roots))
 	}
 	rootCid := roots[0]
+
+	bslatency := runenv.StringParam("bslatency")
+	dur, err := time.ParseDuration(bslatency)
+	if err != nil {
+		return nil, cid.Cid{}, err
+	}
 
 	delayedBS := &DelayedBlockstore{
 		Blockstore: dataBS,

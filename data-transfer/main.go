@@ -5,8 +5,11 @@
 package main
 
 import (
+	"github.com/ipfs/go-log/v2"
 	"github.com/testground/sdk-go/run"
 )
+
+var logger log.StandardLogger = log.Logger("replace-me")
 
 var testcases = map[string]interface{}{
 	"tcp":    run.InitializedTestCaseFn(tcptest),

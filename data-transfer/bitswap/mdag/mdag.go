@@ -4,7 +4,7 @@ package merkledag
 import (
 	"context"
 	"fmt"
-	"github.com/testground/sdk-go/runtime"
+	"github.com/ipfs/go-log/v2"
 	"sync"
 
 	blocks "github.com/ipfs/go-block-format"
@@ -24,7 +24,7 @@ type contextKey string
 
 const progressContextKey contextKey = "progress"
 
-var RunEnv *runtime.RunEnv
+var Logger log.StandardLogger
 
 // NewDAGService constructs a new DAGService (using the default implementation).
 // Note that the default implementation is also an ipld.LinkGetter.
@@ -135,7 +135,7 @@ func (sg *sesGetter) Get(ctx context.Context, c cid.Cid) (format.Node, error) {
 	blk, err := sg.bs.GetBlock(ctx, c)
 	switch err {
 	case bserv.ErrNotFound:
-		RunEnv.RecordMessage("error2: rootCid %v, %v", c, err.Error())
+		Logger.Debugf("error2: rootCid %v, %v", c, err.Error())
 		return nil, format.ErrNotFound
 	case nil:
 		// noop
@@ -429,13 +429,13 @@ func sequentialWalkDepth(ctx context.Context, getLinks GetLinks, root cid.Cid, d
 		err = options.ErrorHandler(root, err)
 	}
 	if err != nil {
-		RunEnv.RecordMessage("error0: rootCid %v, depth %d, %v", root, depth, err.Error())
+		Logger.Debugf("error0: rootCid %v, depth %d, %v", root, depth, err.Error())
 		return err
 	}
 
 	for _, lnk := range links {
 		if err := sequentialWalkDepth(ctx, getLinks, lnk.Cid, depth+1, visit, options); err != nil {
-			RunEnv.RecordMessage("error1: rootCid %v, depth %d, %v", root, depth, err.Error())
+			Logger.Debugf("error1: rootCid %v, depth %d, %v", root, depth, err.Error())
 			return err
 		}
 	}

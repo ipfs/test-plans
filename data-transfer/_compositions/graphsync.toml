@@ -16,11 +16,11 @@
     count = 2
   [groups.run]
     [groups.run.test_params]
-      latency = "50ms"
-      bandwidth = "1GiB"
+      latency = "100ms"
+      bandwidth = "10MiB"
       transports = "tcp"
-      muxers = "yamux"
+      muxers = "mplex"
       security = "tls"
-      #dagtype="deep-ipld"
-      #dagparams="{\"Padding\" : \"128 KiB\", \"Depth\" : 10}"
-      bslatency="50ms"
+      dagtype="deep-ipld"
+      dagparams="{\"Padding\" : \"128 KiB\", \"Depth\" : 200}"
+      bslatency="100ms"

@@ -124,7 +124,7 @@ func setupBaseLibp2pTest(ctx context.Context, runenv *runtime.RunEnv, initCtx *r
 		Enable: true,
 		Default: network.LinkShape{
 			Latency:   latency,
-			Bandwidth: bandwidth,
+			Bandwidth: bandwidth * 8,
 		},
 		CallbackState: "network-configured",
 		RoutingPolicy: network.DenyAll,

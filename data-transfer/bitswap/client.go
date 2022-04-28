@@ -3,7 +3,8 @@ package bitswap
 import (
 	"context"
 	"fmt"
-	"github.com/testground/sdk-go/runtime"
+	log2 "github.com/ipfs/go-log/v2"
+	"golang.org/x/sync/errgroup"
 	"log"
 	"sync"
 
@@ -21,7 +22,7 @@ import (
 )
 
 var (
-	ProtocolBitswap        protocol.ID = "/ipfs/bitswap/1.2.0"
+	ProtocolBitswap protocol.ID = "/ipfs/bitswap/1.2.0"
 )
 
 var _ exchange.Fetcher = (*Client)(nil)
@@ -32,17 +33,17 @@ type response struct {
 }
 
 type Client struct {
-	Host          host.Host
-	Blockstore    blockstore.Blockstore
+	Host       host.Host
+	Blockstore blockstore.Blockstore
 
 	wantsMut sync.RWMutex
 	// map from (cid,peer) -> requestid -> response chan
 	wants map[string]map[string]chan response
 
-	peer peer.ID
+	peer   peer.ID
 	stream network.Stream
 
-	re *runtime.RunEnv
+	re log2.StandardLogger
 }
 
 func (c *Client) NewSession(ctx context.Context) exchange.Fetcher {
@@ -50,7 +51,7 @@ func (c *Client) NewSession(ctx context.Context) exchange.Fetcher {
 }
 
 func (c *Client) HasBlock(ctx context.Context, block blocks.Block) error {
-	c.re.RecordMessage("HasBlock: %v", block.Cid())
+	c.re.Debugf("HasBlock: %v", block.Cid())
 	return nil
 }
 
@@ -93,7 +94,7 @@ func (c *Client) getBlockFromPeer(ctx context.Context, cids []cid.Cid) ([]<-chan
 	}
 	c.wantsMut.Unlock()
 
-	c.re.RecordMessage("Ready to send WANTS for %d CIDs", len(cids))
+	c.re.Debugf("Ready to send WANTS for %d CIDs", len(cids))
 	// write the request
 	err := msg.ToNetV1(c.stream)
 	if err != nil {
@@ -101,7 +102,7 @@ func (c *Client) getBlockFromPeer(ctx context.Context, cids []cid.Cid) ([]<-chan
 		panic(err)
 		return nil, err
 	}
-	c.re.RecordMessage("Sent WANTS for %d CIDs", len(cids))
+	c.re.Debugf("Sent WANTS for %d CIDs", len(cids))
 
 	return out, nil
 }
@@ -138,7 +139,7 @@ func (c *Client) handleStream(stream network.Stream) {
 			for reqID, ch := range chanMap {
 				ch <- response{blk: blk}
 				toDelete[k] = reqID
-				c.re.RecordMessage("Received block %v", blk.Cid())
+				c.re.Debugf("Received block %v", blk.Cid())
 			}
 		}
 	}
@@ -162,6 +163,85 @@ func (c *Client) GetBlock(ctx context.Context, blkCid cid.Cid) (blocks.Block, er
 	}
 
 	return blkResp.blk, nil
+}
+
+func (c *Client) GetBlocksCh(ctx context.Context, cids <-chan cid.Cid) (<-chan blocks.Block, error) {
+	out := make(chan blocks.Block)
+	tmp := make(chan response)
+	grp, errctx := errgroup.WithContext(ctx)
+	grp.Go(
+		func() error {
+			defer close(tmp)
+			for queryCid := range cids {
+				blk, err := c.Blockstore.Get(errctx, queryCid)
+				if err == nil {
+					select {
+					case out <- blk:
+						continue
+					case <-errctx.Done():
+						return errctx.Err()
+					}
+				}
+				if err != blockstore.ErrNotFound {
+					panic(err)
+				}
+				if err := c.getBlockFromPeer2(errctx, queryCid, tmp); err != nil {
+					panic(err)
+				}
+			}
+			return nil
+		})
+	grp.Go(func() error {
+		defer close(out)
+		for b := range tmp {
+			select {
+			case out <- b.blk:
+			case <-errctx.Done():
+				return errctx.Err()
+			}
+		}
+		return nil
+	})
+	return out, nil
+}
+
+func (c *Client) getBlockFromPeer2(ctx context.Context, blkCid cid.Cid, ch chan response) error {
+	if c.stream == nil {
+		str, err := c.Host.NewStream(ctx, c.peer, ProtocolBitswap)
+		if err != nil {
+			return err
+		}
+		c.stream = str
+	}
+
+	// send request
+	msg := message.New(false)
+	// ask for a dont-have, and assume the server returns with it
+	// this may not be true in the large, but for now this is a super naive impl
+	c.wantsMut.Lock()
+	msg.AddEntry(blkCid, 10, pb.Message_Wantlist_Block, true)
+
+	// make the response channel and add it to the response map
+	// the resp handler will remove the channel after sending a value on it
+	reqID := uuid.New().String()
+	key := wantsKey(blkCid, c.peer)
+	if _, ok := c.wants[key]; !ok {
+		c.wants[key] = map[string]chan response{}
+	}
+	c.wants[key][reqID] = ch
+	c.wantsMut.Unlock()
+
+	c.re.Debugf("Ready to send WANTS for %d CIDs", 1)
+	// write the request
+	err := msg.ToNetV1(c.stream)
+	if err != nil {
+		// TODO: this is a problematic case currently, if there's an error we might be leaking channels into the map
+		panic(err)
+		return err
+	}
+	c.re.Debugf("Sent WANTS for %d CIDs", 1)
+
+	return nil
 }
 
 func (c *Client) GetBlocks(ctx context.Context, cids []cid.Cid) (<-chan blocks.Block, error) {
@@ -193,13 +273,13 @@ func (c *Client) GetBlocks(ctx context.Context, cids []cid.Cid) (<-chan blocks.B
 	return out, nil
 }
 
-func NewClient(host host.Host, blockstore blockstore.Blockstore, p peer.ID, re *runtime.RunEnv) *Client {
+func NewClient(host host.Host, blockstore blockstore.Blockstore, p peer.ID, re log2.StandardLogger) *Client {
 	c := &Client{
-		Host:          host,
-		Blockstore:    blockstore,
-		wants:         map[string]map[string]chan response{},
-		peer: p,
-		re: re,
+		Host:       host,
+		Blockstore: blockstore,
+		wants:      map[string]map[string]chan response{},
+		peer:       p,
+		re:         re,
 	}
 	c.Host.SetStreamHandler(ProtocolBitswap, c.handleStream)
 	return c

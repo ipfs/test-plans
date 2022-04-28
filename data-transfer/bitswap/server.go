@@ -2,6 +2,8 @@ package bitswap
 
 import (
 	"context"
+	"github.com/ipfs/go-log/v2"
+	"github.com/ipfs/test-plans/data-transfer/tglog"
 	"io"
 
 	bsmsg "github.com/ipfs/go-bitswap/message"
@@ -14,17 +16,20 @@ import (
 	"github.com/testground/sdk-go/runtime"
 )
 
+var logger log.StandardLogger = log.Logger("bs-simple-server")
+
 type Server struct {
 	Host host.Host
 	Blockstore blockstore.Blockstore
-	RunEnv *runtime.RunEnv
 }
 
 func NewServer(host host.Host, blockstore blockstore.Blockstore, re *runtime.RunEnv) *Server {
+	if re != nil {
+		logger = &tglog.RunenvLogger{Re: re}
+	}
 	s := &Server{
 		Host:          host,
 		Blockstore:    blockstore,
-		RunEnv: re,
 	}
 	s.Host.SetStreamHandler(ProtocolBitswap, s.handle)
 	return s
@@ -50,7 +55,7 @@ func (s *Server) handle(stream network.Stream) {
 		p := stream.Conn().RemotePeer()
 		wl := received.Wantlist()
 
-		s.RunEnv.RecordMessage("Server received message with wantlist size %d", len(wl))
+		logger.Debugf("Server received message with wantlist size %d", len(wl))
 		for i := range wl {
 			e := wl[i]
 			if e.Cancel == true {
@@ -83,22 +88,22 @@ func (s *Server) handle(stream network.Stream) {
 					}
 				}
 
-				s.RunEnv.RecordMessage("Server new stream for sending block %v", e.Cid)
+				logger.Debugf("Server new stream for sending block %v", e.Cid)
 				newStream, err := s.Host.NewStream(context.Background(), p, ProtocolBitswap)
 				if err != nil {
 					panic(err)
 				}
-				s.RunEnv.RecordMessage("Server sending block %v", e.Cid)
+				logger.Debugf("Server sending block %v", e.Cid)
 				err = msg.ToNetV1(newStream)
 				if err != nil {
 					panic(err)
 				}
-				s.RunEnv.RecordMessage("Server sent block %v", e.Cid)
+				logger.Debugf("Server sent block %v", e.Cid)
 				err = newStream.Close()
 				if err != nil {
 					panic(err)
 				}
-				s.RunEnv.RecordMessage("Server stream closed block %v", e.Cid)
+				logger.Debugf("Server stream closed block %v", e.Cid)
 			}()
 		}
 	}
