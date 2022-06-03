@@ -5,7 +5,6 @@ import (
 	"fmt"
 	log2 "github.com/ipfs/go-log/v2"
 	"golang.org/x/sync/errgroup"
-	"log"
 	"sync"
 
 	"github.com/google/uuid"
@@ -13,7 +12,6 @@ import (
 	pb "github.com/ipfs/go-bitswap/message/pb"
 	blocks "github.com/ipfs/go-block-format"
 	"github.com/ipfs/go-cid"
-	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	exchange "github.com/ipfs/go-ipfs-exchange-interface"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/network"
@@ -34,7 +32,6 @@ type response struct {
 
 type Client struct {
 	Host       host.Host
-	Blockstore blockstore.Blockstore
 
 	wantsMut sync.RWMutex
 	// map from (cid,peer) -> requestid -> response chan
@@ -51,7 +48,7 @@ func (c *Client) NewSession(ctx context.Context) exchange.Fetcher {
 }
 
 func (c *Client) HasBlock(ctx context.Context, block blocks.Block) error {
-	c.re.Debugf("HasBlock: %v", block.Cid())
+	logger.Debugf("HasBlock: %v", block.Cid())
 	return nil
 }
 
@@ -65,7 +62,7 @@ func (c *Client) Close() error {
 
 func (c *Client) getBlockFromPeer(ctx context.Context, cids []cid.Cid) ([]<-chan response, error) {
 	if c.stream == nil {
-		str, err := c.Host.NewStream(ctx, c.peer, ProtocolBitswap)
+		str, err := c.Host.NewStream(context.TODO(), c.peer, ProtocolBitswap)
 		if err != nil {
 			return nil, err
 		}
@@ -94,7 +91,7 @@ func (c *Client) getBlockFromPeer(ctx context.Context, cids []cid.Cid) ([]<-chan
 	}
 	c.wantsMut.Unlock()
 
-	c.re.Debugf("Ready to send WANTS for %d CIDs", len(cids))
+	logger.Debugf("Ready to send WANTS for %d CIDs", len(cids))
 	// write the request
 	err := msg.ToNetV1(c.stream)
 	if err != nil {
@@ -102,7 +99,7 @@ func (c *Client) getBlockFromPeer(ctx context.Context, cids []cid.Cid) ([]<-chan
 		panic(err)
 		return nil, err
 	}
-	c.re.Debugf("Sent WANTS for %d CIDs", len(cids))
+	logger.Debugf("Sent WANTS for %d CIDs", len(cids))
 
 	return out, nil
 }
@@ -112,23 +109,25 @@ func wantsKey(cid cid.Cid, peerID peer.ID) string {
 }
 
 func (c *Client) handleStream(stream network.Stream) {
-	defer func() {
-		if err := stream.Close(); err != nil {
-			log.Print("error closing stream")
-		}
-	}()
 	respMsg, err := message.FromNet(stream)
 	if err != nil {
-		log.Printf("error reading message from stream, discarding: %s", err.Error())
+		panic(fmt.Errorf("error reading message from stream, discarding: %s", err.Error()))
+		return
 	}
+
+	if err := stream.Close(); err != nil {
+		logger.Debugf("error closing stream")
+	}
+
 	c.wantsMut.Lock()
 	defer c.wantsMut.Unlock()
 	toDelete := map[string]string{}
 	for _, dontHave := range respMsg.DontHaves() {
+		panic("received dont have")
 		k := wantsKey(dontHave, stream.Conn().RemotePeer())
 		if chanMap, ok := c.wants[k]; ok {
 			for reqID, ch := range chanMap {
-				ch <- response{}
+				go func() {ch <- response{}}()
 				toDelete[k] = reqID
 			}
 		}
@@ -139,7 +138,7 @@ func (c *Client) handleStream(stream network.Stream) {
 			for reqID, ch := range chanMap {
 				ch <- response{blk: blk}
 				toDelete[k] = reqID
-				c.re.Debugf("Received block %v", blk.Cid())
+				logger.Debugf("Received block %v", blk.Cid())
 			}
 		}
 	}
@@ -157,34 +156,29 @@ func (c *Client) GetBlock(ctx context.Context, blkCid cid.Cid) (blocks.Block, er
 	if len(blkCh) != 1 {
 		panic("how!")
 	}
-	blkResp := <-blkCh[0]
-	if err := c.Blockstore.Put(ctx, blkResp.blk); err != nil {
-		panic(err)
-	}
 
-	return blkResp.blk, nil
+	select {
+	case blkResp := <-blkCh[0]:
+		return blkResp.blk, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (c *Client) GetBlocksCh(ctx context.Context, cids <-chan cid.Cid) (<-chan blocks.Block, error) {
 	out := make(chan blocks.Block)
 	tmp := make(chan response)
+
+	var mx sync.Mutex
+	numBlocks := 0
+
 	grp, errctx := errgroup.WithContext(ctx)
 	grp.Go(
 		func() error {
-			defer close(tmp)
 			for queryCid := range cids {
-				blk, err := c.Blockstore.Get(errctx, queryCid)
-				if err == nil {
-					select {
-					case out <- blk:
-						continue
-					case <-errctx.Done():
-						return errctx.Err()
-					}
-				}
-				if err != blockstore.ErrNotFound {
-					panic(err)
-				}
+				mx.Lock()
+				numBlocks++
+				mx.Unlock()
 				if err := c.getBlockFromPeer2(errctx, queryCid, tmp); err != nil {
 					panic(err)
 				}
@@ -193,9 +187,17 @@ func (c *Client) GetBlocksCh(ctx context.Context, cids <-chan cid.Cid) (<-chan b
 		})
 	grp.Go(func() error {
 		defer close(out)
+		numSent := 0
 		for b := range tmp {
 			select {
 			case out <- b.blk:
+				numSent++
+				mx.Lock()
+				if numSent == numBlocks {
+					mx.Unlock()
+					return nil
+				}
+				mx.Unlock()
 			case <-errctx.Done():
 				return errctx.Err()
 			}
@@ -231,7 +233,7 @@ func (c *Client) getBlockFromPeer2(ctx context.Context, blkCid cid.Cid, ch chan 
 	c.wants[key][reqID] = ch
 	c.wantsMut.Unlock()
 
-	c.re.Debugf("Ready to send WANTS for %d CIDs", 1)
+	logger.Debugf("Ready to send WANTS for %d CIDs", 1)
 	// write the request
 	err := msg.ToNetV1(c.stream)
 	if err != nil {
@@ -239,7 +241,7 @@ func (c *Client) getBlockFromPeer2(ctx context.Context, blkCid cid.Cid, ch chan 
 		panic(err)
 		return err
 	}
-	c.re.Debugf("Sent WANTS for %d CIDs", 1)
+	logger.Debugf("Sent WANTS for %d CIDs", 1)
 
 	return nil
 }
@@ -257,9 +259,6 @@ func (c *Client) GetBlocks(ctx context.Context, cids []cid.Cid) (<-chan blocks.B
 	for range blkCh {
 		go func() {
 			blkResp := <-blkCh[0]
-			if err := c.Blockstore.Put(ctx, blkResp.blk); err != nil {
-				panic(err)
-			}
 			out <- blkResp.blk
 			wg.Done()
 		}()
@@ -273,14 +272,13 @@ func (c *Client) GetBlocks(ctx context.Context, cids []cid.Cid) (<-chan blocks.B
 	return out, nil
 }
 
-func NewClient(host host.Host, blockstore blockstore.Blockstore, p peer.ID, re log2.StandardLogger) *Client {
+func NewClient(host host.Host, p peer.ID, re log2.StandardLogger) *Client {
 	c := &Client{
 		Host:       host,
-		Blockstore: blockstore,
 		wants:      map[string]map[string]chan response{},
 		peer:       p,
-		re:         re,
 	}
+	logger = re
 	c.Host.SetStreamHandler(ProtocolBitswap, c.handleStream)
 	return c
 }

@@ -28,7 +28,7 @@ func TestManifetch(t *testing.T) {
 	t.Cleanup(func() { hs.Close() })
 
 	const approxBlockSize = 1 << 14
-	const depth = 20
+	const depth = 400
 	f, err := GenerateDeepDagCarFile(ctx, rand.New(rand.NewSource(0)), int(approxBlockSize), depth)
 	require.NoError(t, err)
 
@@ -75,7 +75,7 @@ func TestManifetch(t *testing.T) {
 	require.NoError(t, err)
 
 	bstore := &CountingBS{Blockstore: blockstore.NewBlockstore(ds), check: make(map[cid.Cid]struct{})}
-	bsclient := dtbs.NewClient(hc, bstore, hs.ID(), logger)
+	bsclient := dtbs.NewClient(hc, hs.ID(), logger)
 
 	err = merkledag.Walk2(ctx, bstore, bsclient, rootCid, manifestCids, pt, logger, merkledag.Concurrency(1))
 	require.NoError(t, err)

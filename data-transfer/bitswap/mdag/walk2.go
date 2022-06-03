@@ -2,12 +2,12 @@ package merkledag
 
 import (
 	"context"
-	bserv "github.com/ipfs/go-blockservice"
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	ds_sync "github.com/ipfs/go-datastore/sync"
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	format "github.com/ipfs/go-ipld-format"
+	legacy "github.com/ipfs/go-ipld-legacy"
 	"github.com/ipfs/go-log/v2"
 	mdagorig "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/test-plans/data-transfer/bitswap"
@@ -26,14 +26,65 @@ type multing struct {
 }
 
 func (m *multing) Get(ctx context.Context, c cid.Cid) (format.Node, error) {
-	nd, err := m.primary.Get(ctx, c)
+	/*nd, err := m.primary.Get(ctx, c)
 	if err == nil {
 		return nd, nil
 	}
 	if err != bserv.ErrNotFound {
 		return nil, err
 	}
-	return m.secondary.Get(ctx, c)
+	return m.secondary.Get(ctx, c)*/
+
+	ch := make(chan format.Node, 2)
+	parallelCtx, cancel := context.WithCancel(ctx)
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		defer cancel()
+		nd, err := m.primary.Get(parallelCtx, c)
+		if err == nil {
+			for {
+				select {
+				case ch <- nd:
+					return
+				case <-parallelCtx.Done():
+					return
+				case <- time.After(time.Second *3):
+					Logger.Debugf("waiting for primary CID %s", c)
+				}
+			}
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		defer cancel()
+		nd, err := m.secondary.Get(parallelCtx, c)
+		if err == nil {
+			for {
+				select {
+				case ch <- nd:
+					return
+				case <-parallelCtx.Done():
+					return
+				case <- time.After(time.Second *3):
+					Logger.Debugf("waiting for secondary CID %s", c)
+				}
+			}
+		}
+	}()
+
+	wg.Wait()
+
+	select {
+	case nd := <-ch:
+		return nd, nil
+	default:
+		Logger.Debugf("abort query for CID %s", c)
+		return nil, format.ErrNotFound
+	}
 }
 
 func (m *multing) GetMany(ctx context.Context, cids []cid.Cid) <-chan *format.NodeOption {
@@ -42,155 +93,74 @@ func (m *multing) GetMany(ctx context.Context, cids []cid.Cid) <-chan *format.No
 
 var _ format.NodeGetter = (*multing)(nil)
 
-/*
-func WalkWithManifest(ctx context.Context, root cid.Cid, dserv format.DAGService, concurrency int, manifestCids <-chan cid.Cid) error {
-	var visitlk sync.Mutex
-	visitSet := cid.NewSet()
-	visit := visitSet.Visit
+type ngwrapper struct {
+	bstore blockstore.Blockstore
 
-	// Setup synchronization
-	grp, errGrpCtx := errgroup.WithContext(ctx)
+	waitLk    sync.Mutex
+	waitMHMap map[string]map[chan struct{}]struct{}
+}
 
-	cacheDstore, err := leveldb.NewDatastore("", nil)
-	if err != nil {
-		return err
+func (n *ngwrapper) Get(ctx context.Context, c cid.Cid) (format.Node, error) {
+	n.waitLk.Lock()
+	b, err := n.bstore.Get(ctx, c)
+	if err == nil {
+		n.waitLk.Unlock()
+		return legacy.DecodeNode(ctx, b)
 	}
-	cacheBstore := blockstore.NewBlockstore(cacheDstore)
-	cacheDserv := &multing{
-		primary: NewDAGService(bserv.New(cacheBstore, offline.Exchange(cacheBstore)))),
-		secondary: dserv,
+	if err != blockstore.ErrNotFound {
+		n.waitLk.Unlock()
+		return nil, err
 	}
-	getLinks := GetLinksDirect(cacheDserv)
-
-		Plan:
-		1. Setup X goroutines for parallelism
-		2. Seed taskqueue with the root CID
-		3. As new CIDs are discovered add to taskqueue
-			a. Also do updates to manifest queue including:
-				1) Removing CIDs from the manifest queue that are from pending
-				2) Giving credit to the manifest when a CID that was downloaded because of it is added to the pending queue
-		4. As manifest CIDs come in add to keep a buffer of size X outstanding CIDs
-
-		... Manifest CIDs could be bogus, perhaps after X seconds cancel them and recombine into a GetMany with O(1) goroutines
-
-	var manifestLk sync.RWMutex
-	manifestMaxCredit := 1
-	manifestCurrentCredit := 1
-	manifestOutstandingMHs := make(map[string]struct{})
-
-	// Input and output queues for workers.
-	feed := make(chan *listCids)
-	out := make(chan *listCids)
-	done := make(chan struct{})
-
-	grp.Go(func() error {
-		for {
-
-		}
-	})
-
-	for i := 0; i < concurrency; i++ {
-		grp.Go(func() error {
-			for feedChildren := range feed {
-				var linksToVisit []cid.Cid
-				for _, nextCid := range feedChildren.cids {
-					var shouldVisit bool
-
-					visitlk.Lock()
-					shouldVisit = visit(nextCid)
-					visitlk.Unlock()
-
-					if shouldVisit {
-						linksToVisit = append(linksToVisit, nextCid)
-					}
-				}
-
-				getLinks(errGrpCtx)
-
-				chNodes := dserv.GetMany(errGrpCtx, linksToVisit)
-				for optNode := range chNodes {
-					if optNode.Err != nil {
-						return optNode.Err
-					}
-
-					nextShard, err := NewHamtFromDag(dserv, optNode.Node)
-					if err != nil {
-						return err
-					}
-
-					nextChildren, err := nextShard.walkChildren(processShardValues)
-					if err != nil {
-						return err
-					}
-
-					select {
-					case out <- nextChildren:
-					case <-errGrpCtx.Done():
-						return nil
-					}
-				}
-
-				select {
-				case done <- struct{}{}:
-				case <-errGrpCtx.Done():
-				}
-			}
-			return nil
-		})
+	waitCh := make(chan struct{}, 1)
+	m, found := n.waitMHMap[string(c.Hash())]
+	if !found {
+		n.waitMHMap[string(c.Hash())] = make(map[chan struct{}]struct{})
+		m = n.waitMHMap[string(c.Hash())]
 	}
-
-	send := feed
-	var todoQueue []*listCids
-	var inProgress int
-
-	next := &listCids{
-		cids: []cid.Cid{root},
-	}
-
-dispatcherLoop:
+	m[waitCh] = struct{}{}
+	n.waitLk.Unlock()
 	for {
 		select {
-		case send <- next:
-			inProgress++
-			if len(todoQueue) > 0 {
-				next = todoQueue[0]
-				todoQueue = todoQueue[1:]
-			} else {
-				next = nil
-				send = nil
+		case <-waitCh:
+			b, err := n.bstore.Get(ctx, c)
+			if err == nil {
+				return legacy.DecodeNode(ctx, b)
 			}
-		case <-done:
-			inProgress--
-			if inProgress == 0 && next == nil {
-				break dispatcherLoop
+			if err == blockstore.ErrNotFound {
+				return nil, format.ErrNotFound
 			}
-		case nextNodes := <-out:
-			if next == nil {
-				next = nextNodes
-				send = feed
-			} else {
-				todoQueue = append(todoQueue, nextNodes)
-			}
-			for _, c := range nextNodes.cids {
-				k := string(c.Hash())
-				if _, ok := manifestOutstandingMHs[k]; ok {
-					delete(manifestOutstandingMHs, k)
-					manifestMaxCredit++
-				}
-			}
-		case <-errGrpCtx.Done():
-			break dispatcherLoop
-		default:
-			select {
-			case mcid := <-manifestCids:
-
-			}
+			return nil, err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Second * 3):
+			f, err := n.bstore.Has(ctx, c)
+			Logger.Debugf("stuck waiting for %s: Has %v, Err %v", c, f, err)
 		}
 	}
-	close(feed)
-	return grp.Wait()
 }
-*/
+
+func (n *ngwrapper) Alert(c cid.Cid) {
+	n.waitLk.Lock()
+	defer n.waitLk.Unlock()
+	chMap, found := n.waitMHMap[string(c.Hash())]
+	if !found {
+		Logger.Debugf("alert notfound %s", c)
+		return
+	}
+	Logger.Debugf("alert found %s, mapsize", c, len(chMap))
+	for ch := range chMap {
+		ch <- struct{}{}
+		close(ch)
+	}
+	delete(n.waitMHMap, string(c.Hash()))
+}
+
+func (n *ngwrapper) GetMany(ctx context.Context, cids []cid.Cid) <-chan *format.NodeOption {
+	//TODO implement me
+	panic("implement me")
+}
+
+var _ format.NodeGetter = (*ngwrapper)(nil)
 
 func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Client,
 	rootCid cid.Cid, manifestCids <-chan cid.Cid, pt *ProgressTracker, logger log.StandardLogger, options ...WalkOption) error {
@@ -204,8 +174,12 @@ func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Cl
 	dserv := mdagorig.NewReadOnlyDagService(mdagorig.NewSession(ctx, dservBase))
 
 	cacheBstore := blockstore.NewBlockstore(cacheDstore)
+	cacheNG := &ngwrapper{
+		bstore:    cacheBstore,
+		waitMHMap: make(map[string]map[chan struct{}]struct{}),
+	}
 	cacheDserv := &multing{
-		primary:   NewDAGService(bserv.New(cacheBstore, client)),
+		primary:   cacheNG,
 		secondary: dserv,
 	}
 	getLinks := GetLinksDirect(cacheDserv)
@@ -227,7 +201,7 @@ func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Cl
 	*/
 
 	var manifestLk sync.RWMutex
-	const startingCredit = 1
+	const startingCredit = 100
 	manifestMaxCredit := startingCredit
 	manifestCurrentCredit := manifestMaxCredit
 	manifestOutstandingMHs := make(map[string]struct{})
@@ -270,18 +244,18 @@ func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Cl
 			}
 			manifestLk.Unlock()
 			/*
-			if found {
-				blk, err := cacheBstore.Get(ctx, c)
-				if err == nil {
-					if err := bstore.Put(ctx, blk); err != nil {
-						panic(err)
-					}
-					if err := cacheBstore.DeleteBlock(ctx, c); err != nil {
+				if found {
+					blk, err := cacheBstore.Get(ctx, c)
+					if err == nil {
+						if err := bstore.Put(ctx, blk); err != nil {
+							panic(err)
+						}
+						if err := cacheBstore.DeleteBlock(ctx, c); err != nil {
 
+						}
 					}
 				}
-			}
-			 */
+			*/
 			pt.Increment()
 			return true
 		}
@@ -295,7 +269,11 @@ func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Cl
 	}
 
 	go func() {
+		defer close(reqCids)
+		i := 0
 		for c := range manifestCids {
+			i++
+			logger.Debugf("manifest CID ready to request %d", i)
 			manifestLk.Lock()
 			gotCredit := false
 			if manifestCurrentCredit > 0 {
@@ -304,7 +282,15 @@ func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Cl
 			}
 			manifestLk.Unlock()
 			if !gotCredit {
-				<-manifestCreditAvailable
+			foo:
+				for {
+					select {
+					case <-manifestCreditAvailable:
+						break foo
+					case <-time.After(time.Second * 3):
+						Logger.Debugf("waiting for credit")
+					}
+				}
 				manifestLk.Lock()
 				if manifestCurrentCredit > 0 {
 					manifestCurrentCredit--
@@ -316,6 +302,7 @@ func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Cl
 
 			select {
 			case reqCids <- c:
+				logger.Debugf("manifest CIDs requested %d", i)
 				cslk.RLock()
 				manifestLk.Lock()
 				if !cset.Has(c) {
@@ -333,6 +320,7 @@ func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Cl
 				return
 			}
 		}
+		logger.Debugf("done requesting all manifest blocks")
 	}()
 
 	go func() {
@@ -341,9 +329,11 @@ func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Cl
 			if err := cacheBstore.Put(ctx, b); err != nil {
 				panic(err)
 			}
+			cacheNG.Alert(b.Cid())
 			i++
 			logger.Debugf("found manifest blocks number %d, cid %s", i, b.Cid())
 		}
+		logger.Debugf("found all %d manifest blocks", i)
 	}()
 
 	return Walk(ctx, getLinks, rootCid, visitProgress, options...)

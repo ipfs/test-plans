@@ -19,7 +19,7 @@
       latency = "100ms"
       bandwidth = "10MiB"
       transports = "tcp"
-      muxers = "mplex"
+      muxers = "yamux"
       security = "tls"
       servertype = "simplified"
       dagtype="deep-ipld"

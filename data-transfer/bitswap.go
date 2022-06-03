@@ -7,6 +7,7 @@ import (
 	"github.com/ipfs/test-plans/data-transfer/tglog"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"io"
+	gr "runtime"
 	gsync "sync"
 	"time"
 
@@ -163,8 +164,7 @@ func manifetchDAGWalker(ctx context.Context, runenv *runtime.RunEnv, initCtx *ru
 		return err
 	}
 	bstore := &CountingBS{Blockstore: blockstore.NewBlockstore(ds), check: make(map[cid.Cid]struct{}), re: runenv}
-	//bsclient := bitswap.New(ctx, network.NewFromIpfsHost(ti.h, rhelp.Null{}), bstore, bitswap.MaxOutstandingBytesPerPeer(1 << 30))
-	bsclient := dtbs.NewClient(ti.h, bstore, ai1.ID, logger)
+	bsclient := dtbs.NewClient(ti.h, ai1.ID, logger)
 	merkledag.Logger = logger
 
 	runenv.RecordMessage("Client connect to server")
@@ -197,8 +197,16 @@ func manifetchDAGWalker(ctx context.Context, runenv *runtime.RunEnv, initCtx *ru
 		return err
 	}
 
+	go func() {
+		<-time.After(time.Second*15)
+		buf := make([]byte, 1024*1024*10)
+		size := gr.Stack(buf, true)
+		runenv.RecordMessage("stackdump size", size)
+		panic(string(buf[:size]))
+	}()
 
-	if err := merkledag.Walk2(ctx, bstore, bsclient, rootCid, manifestCids, pt, logger, merkledag.Concurrency(500)); err != nil{
+	if err := merkledag.Walk2(ctx, bstore, bsclient, rootCid, manifestCids, pt, logger, merkledag.Concurrency(1)); err != nil{
+		panic(err)
 		return err
 	}
 
@@ -216,10 +224,8 @@ func basicDAGWalker(ctx context.Context, runenv *runtime.RunEnv, initCtx *run.In
 		return err
 	}
 	bstore := &CountingBS{Blockstore: blockstore.NewBlockstore(ds), check: make(map[cid.Cid]struct{}), re: runenv}
-	//bsclient := bitswap.New(ctx, network.NewFromIpfsHost(ti.h, rhelp.Null{}), bstore, bitswap.MaxOutstandingBytesPerPeer(1 << 30))
-	bsclient := dtbs.NewClient(ti.h, bstore, ai1.ID, logger)
+	bsclient := dtbs.NewClient(ti.h, ai1.ID, logger)
 	merkledag.Logger = logger
-	//blockservice.RunEnv = runenv
 	dserv := mdagorig.NewDAGService(blockservice.New(bstore, bsclient))
 	ctxDsrv := mdagorig.NewReadOnlyDagService(mdagorig.NewSession(ctx, dserv))
 

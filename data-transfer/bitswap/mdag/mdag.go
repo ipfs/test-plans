@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/ipfs/go-log/v2"
 	"sync"
+	"time"
 
 	blocks "github.com/ipfs/go-block-format"
 	cid "github.com/ipfs/go-cid"
@@ -551,6 +552,7 @@ func parallelWalkDepth(ctx context.Context, getLinks GetLinks, root cid.Cid, vis
 		depth: 0,
 	}
 
+	t := time.NewTicker(time.Second * 3)
 	for {
 		select {
 		case send <- next:
@@ -562,6 +564,8 @@ func parallelWalkDepth(ctx context.Context, getLinks GetLinks, root cid.Cid, vis
 				next = cidDepth{}
 				send = nil
 			}
+		case <-t.C:
+			Logger.Infof("InProgress :%d, TodoQ: %+v", todoQueue)
 		case <-done:
 			inProgress--
 			if inProgress == 0 && !next.cid.Defined() {
