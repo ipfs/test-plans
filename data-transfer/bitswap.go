@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	delay "github.com/ipfs/go-ipfs-delay"
-	"github.com/ipfs/test-plans/data-transfer/tglog"
-	"github.com/libp2p/go-libp2p-core/peer"
 	"io"
 	gr "runtime"
 	gsync "sync"
 	"time"
+
+	delay "github.com/ipfs/go-ipfs-delay"
+	"github.com/ipfs/test-plans/data-transfer/manifetch"
+	"github.com/ipfs/test-plans/data-transfer/tglog"
+	"github.com/libp2p/go-libp2p-core/peer"
 
 	"github.com/testground/sdk-go/run"
 	"github.com/testground/sdk-go/runtime"
@@ -24,6 +26,7 @@ import (
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	nilrouting "github.com/ipfs/go-ipfs-routing/none"
 	dtbs "github.com/ipfs/test-plans/data-transfer/bitswap"
+
 	//blockservice "github.com/ipfs/test-plans/data-transfer/bitswap/bservice"
 	merkledag "github.com/ipfs/test-plans/data-transfer/bitswap/mdag"
 
@@ -75,7 +78,7 @@ func bitswapServer(ctx context.Context, runenv *runtime.RunEnv, initCtx *run.Ini
 	serverType := runenv.StringParam("servertype")
 	switch serverType {
 	case "standard":
-		nilRouter, err := nilrouting.ConstructNilRouting(nil, nil, nil, nil)
+		nilRouter, err := nilrouting.ConstructNilRouting(ctx, nil, nil, nil)
 		if err != nil {
 			return err
 		}
@@ -106,11 +109,11 @@ func bitswapServer(ctx context.Context, runenv *runtime.RunEnv, initCtx *run.Ini
 			delay:      delay.Fixed(dur),
 		}
 
-		handler, err := NewManifetchServer(delayedBS)
-		if err != nil {
+		mserver := manifetch.NewServer(delayedBS, ti.h)
+
+		if err := mserver.Start(); err != nil {
 			return err
 		}
-		ti.h.SetStreamHandler(manifetchID, handler)
 	default:
 		panic(fmt.Sprintf("unsupported manifestfetchtype %s", manifestFetchType))
 	}
@@ -154,8 +157,6 @@ func bitswapClient(ctx context.Context, runenv *runtime.RunEnv, initCtx *run.Ini
 	default:
 		panic(fmt.Sprintf("unsupported manifestfetchtype %s", manifestFetchType))
 	}
-
-	return nil
 }
 
 func manifetchDAGWalker(ctx context.Context, runenv *runtime.RunEnv, initCtx *run.InitContext, ti *Libp2pTestInfo, ai1 peer.AddrInfo, rootCid cid.Cid) error {
@@ -188,26 +189,23 @@ func manifetchDAGWalker(ctx context.Context, runenv *runtime.RunEnv, initCtx *ru
 		}
 	}()
 
-	manifetchStream, err := ti.h.NewStream(ctx, ai1.ID, manifetchID)
-	if err != nil {
-		return err
-	}
-	manifestCids, err := manifetchGet(manifetchStream, rootCid)
+	mcli := manifetch.NewClient(ti.h)
+
+	iter, err := mcli.Get(ctx, ai1.ID, rootCid)
 	if err != nil {
 		return err
 	}
 
 	go func() {
-		<-time.After(time.Second*15)
+		<-time.After(time.Second * 15)
 		buf := make([]byte, 1024*1024*10)
 		size := gr.Stack(buf, true)
 		runenv.RecordMessage("stackdump size", size)
 		panic(string(buf[:size]))
 	}()
 
-	if err := merkledag.Walk2(ctx, bstore, bsclient, rootCid, manifestCids, pt, logger, merkledag.Concurrency(1)); err != nil{
+	if err := merkledag.Walk2(ctx, bstore, bsclient, rootCid, iter, pt, logger, merkledag.Concurrency(1)); err != nil {
 		panic(err)
-		return err
 	}
 
 	runenv.RecordMessage("progress : %d", pt.Value())

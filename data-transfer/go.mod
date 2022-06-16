@@ -3,7 +3,10 @@ module github.com/ipfs/test-plans/data-transfer
 go 1.16
 
 require (
+	github.com/dgraph-io/badger/v3 v3.2103.2
+	github.com/dgraph-io/sroar v0.0.0-20220527172339-b92b7eaaf6e0
 	github.com/dustin/go-humanize v1.0.0
+	github.com/fxamacker/cbor/v2 v2.4.0
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/ipfs/go-bitswap v0.5.1
@@ -37,6 +40,7 @@ require (
 	github.com/libp2p/go-libp2p-swarm v0.10.2
 	github.com/libp2p/go-libp2p-tls v0.4.1
 	github.com/libp2p/go-libp2p-yamux v0.9.1
+	github.com/libp2p/go-mplex v0.7.0 // indirect
 	github.com/libp2p/go-msgio v0.2.0
 	github.com/libp2p/go-tcp-transport v0.5.1
 	github.com/libp2p/go-ws-transport v0.6.0

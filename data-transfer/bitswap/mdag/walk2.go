@@ -2,6 +2,9 @@ package merkledag
 
 import (
 	"context"
+	"sync"
+	"time"
+
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	ds_sync "github.com/ipfs/go-datastore/sync"
@@ -12,8 +15,7 @@ import (
 	mdagorig "github.com/ipfs/go-merkledag"
 	"github.com/ipfs/test-plans/data-transfer/bitswap"
 	blockservice "github.com/ipfs/test-plans/data-transfer/bitswap/bservice"
-	"sync"
-	"time"
+	"github.com/ipfs/test-plans/data-transfer/manifetch"
 )
 
 type listCids struct {
@@ -51,7 +53,7 @@ func (m *multing) Get(ctx context.Context, c cid.Cid) (format.Node, error) {
 					return
 				case <-parallelCtx.Done():
 					return
-				case <- time.After(time.Second *3):
+				case <-time.After(time.Second * 3):
 					Logger.Debugf("waiting for primary CID %s", c)
 				}
 			}
@@ -69,7 +71,7 @@ func (m *multing) Get(ctx context.Context, c cid.Cid) (format.Node, error) {
 					return
 				case <-parallelCtx.Done():
 					return
-				case <- time.After(time.Second *3):
+				case <-time.After(time.Second * 3):
 					Logger.Debugf("waiting for secondary CID %s", c)
 				}
 			}
@@ -163,7 +165,7 @@ func (n *ngwrapper) GetMany(ctx context.Context, cids []cid.Cid) <-chan *format.
 var _ format.NodeGetter = (*ngwrapper)(nil)
 
 func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Client,
-	rootCid cid.Cid, manifestCids <-chan cid.Cid, pt *ProgressTracker, logger log.StandardLogger, options ...WalkOption) error {
+	rootCid cid.Cid, iter *manifetch.TreeIter, pt *ProgressTracker, logger log.StandardLogger, options ...WalkOption) error {
 	/*cacheDstore, err := leveldb.NewDatastore("", nil)
 	if err != nil {
 		return err
@@ -271,7 +273,7 @@ func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Cl
 	go func() {
 		defer close(reqCids)
 		i := 0
-		for c := range manifestCids {
+		for iter.HasNext() {
 			i++
 			logger.Debugf("manifest CID ready to request %d", i)
 			manifestLk.Lock()
@@ -301,7 +303,19 @@ func Walk2(ctx context.Context, bstore blockstore.Blockstore, client *bitswap.Cl
 			}
 
 			select {
-			case reqCids <- c:
+			default:
+				n, err := iter.Next()
+				if err != nil {
+					logger.Error("error iterating CIDs", err)
+					return
+				}
+
+				c, err := cid.Decode(n.CID)
+				if err != nil {
+					logger.Error("error decoding CID", err)
+					return
+				}
+
 				logger.Debugf("manifest CIDs requested %d", i)
 				cslk.RLock()
 				manifestLk.Lock()

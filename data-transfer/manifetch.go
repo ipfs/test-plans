@@ -1,89 +1,94 @@
 package main
 
-import (
-	"context"
-	"github.com/ipfs/go-blockservice"
-	"github.com/ipfs/go-cid"
-	blockstore "github.com/ipfs/go-ipfs-blockstore"
-	offline "github.com/ipfs/go-ipfs-exchange-offline"
-	mdagorig "github.com/ipfs/go-merkledag"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-msgio"
-)
+// import (
+// 	"context"
 
-const manifetchID = "/ipfs/manifetch/1.0.0"
+// 	"github.com/ipfs/go-blockservice"
+// 	"github.com/ipfs/go-cid"
+// 	blockstore "github.com/ipfs/go-ipfs-blockstore"
+// 	offline "github.com/ipfs/go-ipfs-exchange-offline"
+// 	mdagorig "github.com/ipfs/go-merkledag"
+// 	"github.com/libp2p/go-libp2p-core/network"
+// 	"github.com/libp2p/go-msgio"
+// )
 
-func NewManifetchServer(bstore blockstore.Blockstore) (network.StreamHandler, error) {
-	return func(stream network.Stream) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+// const manifetchID = "/ipfs/manifetch/1.0.0"
 
-		r := msgio.NewVarintReaderSize(stream, network.MessageSizeMax)
-		msg, err := r.ReadMsg()
-		if err != nil {
-			_ = stream.Reset()
-			return
-		}
-		// TODO: Allow sending a CID and selector
-		reqCid, err := cid.Cast(msg)
-		if err != nil {
-			_ = stream.Reset()
-			return
-		}
+// func NewManifetchServer(bstore blockstore.Blockstore) (network.StreamHandler, error) {
+// 	return func(stream network.Stream) {
+// 		ctx, cancel := context.WithCancel(context.Background())
+// 		defer cancel()
 
-		visitSet := cid.NewSet()
-		w := msgio.NewVarintWriter(stream)
-		defer w.Close()
+// 		r := msgio.NewVarintReaderSize(stream, network.MessageSizeMax)
+// 		msg, err := r.ReadMsg()
+// 		if err != nil {
+// 			_ = stream.Reset()
+// 			return
+// 		}
+// 		// TODO: Allow sending a CID and selector
+// 		reqCid, err := cid.Cast(msg)
+// 		if err != nil {
+// 			_ = stream.Reset()
+// 			return
+// 		}
 
-		visitProgress := func(c cid.Cid) bool {
-			if visitSet.Visit(c) {
-				if err := w.WriteMsg(c.Bytes()); err != nil {
-					// TODO: Better handling
-					panic(err)
-				}
-				return true
-			}
-			return false
-		}
+// 		visitSet := cid.NewSet()
+// 		w := msgio.NewVarintWriter(stream)
+// 		defer w.Close()
 
-		ctxDsrv := mdagorig.NewReadOnlyDagService(mdagorig.NewSession(ctx,
-			mdagorig.NewDAGService(blockservice.New(bstore, offline.Exchange(bstore))),
-		))
+// 		visitProgress := func(c cid.Cid) bool {
+// 			if visitSet.Visit(c) {
+// 				if err := w.WriteMsg(c.Bytes()); err != nil {
+// 					// TODO: Better handling
+// 					panic(err)
+// 				}
+// 				return true
+// 			}
+// 			return false
+// 		}
 
-		if err := mdagorig.Walk(ctx, mdagorig.GetLinksDirect(ctxDsrv), reqCid, visitProgress, mdagorig.Concurrency(500)); err != nil {
-			_ = stream.Reset()
-			return
-		}
-	}, nil
-}
+// 		ctxDsrv := mdagorig.NewReadOnlyDagService(mdagorig.NewSession(ctx,
+// 			mdagorig.NewDAGService(blockservice.New(bstore, offline.Exchange(bstore))),
+// 		))
 
-func manifetchGet(stream network.Stream, root cid.Cid) (chan cid.Cid, error) {
-	w := msgio.NewVarintWriter(stream)
-	if err := w.WriteMsg(root.Bytes()); err != nil {
-		return nil, err
-	}
+// 		if err := mdagorig.Walk(ctx, mdagorig.GetLinksDirect(ctxDsrv), reqCid, visitProgress, mdagorig.Concurrency(500)); err != nil {
+// 			_ = stream.Reset()
+// 			return
+// 		}
+// 	}, nil
+// }
 
-	if err := stream.CloseWrite(); err != nil {
-		return nil, err
-	}
+// func manifetchGet(stream network.Stream, root cid.Cid) (chan cid.Cid, error) {
+// 	w := msgio.NewVarintWriter(stream)
+// 	if err := w.WriteMsg(root.Bytes()); err != nil {
+// 		return nil, err
+// 	}
 
-	retCh := make(chan cid.Cid, 100)
+// 	if err := stream.CloseWrite(); err != nil {
+// 		return nil, err
+// 	}
 
-	// TODO: Error handling
-	go func() {
-		defer close(retCh)
-		r := msgio.NewVarintReaderSize(stream, network.MessageSizeMax)
-		for {
-			msg, err := r.ReadMsg()
-			if err != nil {
-				return
-			}
-			c, err := cid.Cast(msg)
-			if err != nil {
-				return
-			}
-			retCh <- c
-		}
-	}()
-	return retCh, nil
-}
+// 	retCh := make(chan cid.Cid, 100)
+
+// 	// TODO: Error handling
+// 	go func() {
+// 		defer close(retCh)
+// 		r := msgio.NewVarintReaderSize(stream, network.MessageSizeMax)
+// 		defer r.Close()
+// 		for {
+// 			msg, err := r.ReadMsg()
+// 			if err != nil {
+// 				return
+// 			}
+// 			c, err := cid.Cast(msg)
+// 			if err != nil {
+// 				return
+// 			}
+
+// 			r.ReleaseMsg(msg)
+
+// 			retCh <- c
+// 		}
+// 	}()
+// 	return retCh, nil
+// }

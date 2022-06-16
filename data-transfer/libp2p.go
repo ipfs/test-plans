@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/libp2p/go-libp2p-core/host"
 	"strings"
 	"time"
+
+	"github.com/libp2p/go-libp2p-core/host"
 
 	"github.com/testground/sdk-go/network"
 	"github.com/testground/sdk-go/run"

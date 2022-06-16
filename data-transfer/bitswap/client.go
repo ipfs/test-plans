@@ -3,9 +3,10 @@ package bitswap
 import (
 	"context"
 	"fmt"
+	"sync"
+
 	log2 "github.com/ipfs/go-log/v2"
 	"golang.org/x/sync/errgroup"
-	"sync"
 
 	"github.com/google/uuid"
 	"github.com/ipfs/go-bitswap/message"
@@ -31,7 +32,7 @@ type response struct {
 }
 
 type Client struct {
-	Host       host.Host
+	Host host.Host
 
 	wantsMut sync.RWMutex
 	// map from (cid,peer) -> requestid -> response chan
@@ -127,7 +128,7 @@ func (c *Client) handleStream(stream network.Stream) {
 		k := wantsKey(dontHave, stream.Conn().RemotePeer())
 		if chanMap, ok := c.wants[k]; ok {
 			for reqID, ch := range chanMap {
-				go func() {ch <- response{}}()
+				go func() { ch <- response{} }()
 				toDelete[k] = reqID
 			}
 		}
@@ -274,9 +275,9 @@ func (c *Client) GetBlocks(ctx context.Context, cids []cid.Cid) (<-chan blocks.B
 
 func NewClient(host host.Host, p peer.ID, re log2.StandardLogger) *Client {
 	c := &Client{
-		Host:       host,
-		wants:      map[string]map[string]chan response{},
-		peer:       p,
+		Host:  host,
+		wants: map[string]map[string]chan response{},
+		peer:  p,
 	}
 	logger = re
 	c.Host.SetStreamHandler(ProtocolBitswap, c.handleStream)

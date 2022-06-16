@@ -5,12 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	blocks "github.com/ipfs/go-block-format"
-	delay "github.com/ipfs/go-ipfs-delay"
 	"io"
 	"math/rand"
 	"os"
 	"time"
+
+	blocks "github.com/ipfs/go-block-format"
+	delay "github.com/ipfs/go-ipfs-delay"
 
 	_ "github.com/ipld/go-ipld-prime/codec/dagcbor"
 
@@ -216,7 +217,7 @@ func GetCARFileFromConfig(ctx context.Context, runenv *runtime.RunEnv) (*os.File
 
 		type Params struct {
 			Padding string
-			Depth int
+			Depth   int
 		}
 
 		var p Params
@@ -261,7 +262,8 @@ func (d *DelayedBlockstore) Get(ctx context.Context, c cid.Cid) (blocks.Block, e
 }
 
 func (d *DelayedBlockstore) GetSize(ctx context.Context, c cid.Cid) (int, error) {
-	panic("implement me")
+	d.delay.Wait()
+	return d.Blockstore.GetSize(ctx, c)
 }
 
 func (d *DelayedBlockstore) Put(ctx context.Context, block blocks.Block) error {

@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"math/rand"
+	"testing"
+	"time"
+
 	"github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
 	ds_sync "github.com/ipfs/go-datastore/sync"
@@ -9,13 +13,11 @@ import (
 	delay "github.com/ipfs/go-ipfs-delay"
 	dtbs "github.com/ipfs/test-plans/data-transfer/bitswap"
 	merkledag "github.com/ipfs/test-plans/data-transfer/bitswap/mdag"
+	"github.com/ipfs/test-plans/data-transfer/manifetch"
 	"github.com/libp2p/go-libp2p-core/peer"
 	swarmt "github.com/libp2p/go-libp2p-swarm/testing"
 	bhost "github.com/libp2p/go-libp2p/p2p/host/basic"
 	"github.com/stretchr/testify/require"
-	"math/rand"
-	"testing"
-	"time"
 )
 
 func TestManifetch(t *testing.T) {
@@ -47,10 +49,6 @@ func TestManifetch(t *testing.T) {
 	}
 
 	_ = dtbs.NewServer(hs, slowBS, nil)
-	handler, err := NewManifetchServer(robs)
-	require.NoError(t, err)
-
-	hs.SetStreamHandler(manifetchID, handler)
 
 	// Setup client
 	hc, err := bhost.NewHost(swarmt.GenSwarm(t, swarmt.OptDisableReuseport), new(bhost.HostOpts))
@@ -63,20 +61,26 @@ func TestManifetch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	manifetchStream, err := hc.NewStream(ctx, hs.ID(), manifetchID)
+	mss := manifetch.NewServer(slowBS, hc)
+
+	err = mss.Start()
 	require.NoError(t, err)
 
-	manifestCids, err := manifetchGet(manifetchStream, rootCid)
-	require.NoError(t, err)
+	msc := manifetch.NewClient(hs)
 
-	pt := &merkledag.ProgressTracker{}
+	treeIter, err := msc.Get(ctx, hc.ID(), rootCid)
+	require.NoError(t, err)
 
 	ds := ds_sync.MutexWrap(datastore.NewMapDatastore())
 	require.NoError(t, err)
 
 	bstore := &CountingBS{Blockstore: blockstore.NewBlockstore(ds), check: make(map[cid.Cid]struct{})}
 	bsclient := dtbs.NewClient(hc, hs.ID(), logger)
+	pt := &merkledag.ProgressTracker{}
 
-	err = merkledag.Walk2(ctx, bstore, bsclient, rootCid, manifestCids, pt, logger, merkledag.Concurrency(1))
+	// needed to avoid panic
+	merkledag.Logger = logger
+
+	err = merkledag.Walk2(ctx, bstore, bsclient, rootCid, treeIter, pt, logger, merkledag.Concurrency(1))
 	require.NoError(t, err)
 }
