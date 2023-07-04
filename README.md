@@ -1,3 +1,5 @@
+❗ Testground test plans for go-ipfs are no longer maintained.
+
 # Testground test plans for go-ipfs
 
 [![Made by Protocol Labs](https://img.shields.io/badge/made%20by-Protocol%20Labs-blue.svg?style=flat-square)](http://protocol.ai)
