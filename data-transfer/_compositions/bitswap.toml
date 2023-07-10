@@ -1,0 +1,27 @@
+[metadata]
+  name = "bitswap"
+  author = "Adin Schmahmann"
+
+[global]
+  plan = "data-transfer"
+  case = "bitswap"
+  total_instances = 2
+  builder = "docker:go"
+  runner = "local:docker"
+  disable_metrics = false
+
+[[groups]]
+  id = "group1"
+  [groups.instances]
+    count = 2
+  [groups.run]
+    [groups.run.test_params]
+      latency = "50ms"
+      bandwidth = "1GiB"
+      transports = "tcp"
+      muxers = "yamux"
+      security = "tls"
+      servertype = "simplified"
+      #dagtype="deep-ipld"
+      #dagparams="{\"Padding\" : \"128 KiB\", \"Depth\" : 10}"
+      bslatency = "50ms"

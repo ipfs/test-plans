@@ -1,0 +1,27 @@
+[metadata]
+  name = "libp2p"
+  author = "Adin Schmahmann"
+
+[global]
+  plan = "data-transfer"
+  case = "libp2p"
+  total_instances = 2
+  builder = "docker:go"
+  runner = "local:docker"
+  disable_metrics = false
+
+[[groups]]
+  id = "group1"
+  [groups.instances]
+    count = 2
+  [groups.run]
+    [groups.run.test_params]
+      latency = "10ms"
+      bandwidth = "100GiB"
+      transports = "tcp"
+      muxers = "yamux"
+      security = "tls"
+      dagtype="unixfs-file"
+      dagparams="1 GB"
+      #dagtype="deep-ipld"
+      #dagparams="{\"Padding\" : \"128 KiB\", \"Depth\" : 10}"
