@@ -1,0 +1,24 @@
+[metadata]
+  name = "tcp"
+  author = "Adin Schmahmann"
+
+[global]
+  plan = "data-transfer"
+  case = "tcp"
+  total_instances = 2
+  builder = "docker:go"
+  runner = "local:docker"
+  disable_metrics = false
+
+[[groups]]
+  id = "group1"
+  [groups.instances]
+    count = 2
+  [groups.run]
+    [groups.run.test_params]
+      latency = "100ms"
+      bandwidth = "10MiB"
+      #dagtype="unixfs-file"
+      #dagparams="1 GB"
+      dagtype="deep-ipld"
+      dagparams="{\"Padding\" : \"128 KiB\", \"Depth\" : 200}"
