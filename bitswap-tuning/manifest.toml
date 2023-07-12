@@ -40,6 +40,7 @@ instances = { min = 2, max = 64, default = 2 }
   bandwidth_mb = { type = "int", desc = "bandwidth", unit = "Mib", default = 1024 }
   parallel_gen_mb = { type = "int", desc = "maximum allowed size of seed data to generate in parallel", unit = "Mib", default = 100 }
 
+
 [[testcases]]
 name = "fuzz"
 instances = { min = 2, max = 64, default = 2 }
